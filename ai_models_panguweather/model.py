@@ -11,6 +11,7 @@ import os
 
 import numpy as np
 import onnxruntime as ort
+
 from ai_models.model import Model
 
 LOG = logging.getLogger(__name__)
@@ -89,9 +90,11 @@ class PanguWeather(Model):
         input_24, input_surface_24 = input, input_surface
 
         max_24h_steps = self.lead_time // 24
-        max_6h_steps = (self.lead_time - 24* max_24h_steps) // 6
-
-        with self.stepper(24) as stepper:
+        lead_time_6h = self.lead_time - 24 * max_24h_steps
+        max_6h_steps = lead_time_6h // 6
+        step = 0
+        i = 0
+        with self.stepper(0) as stepper:
             for i in range(max_24h_steps):
                 step = (i + 1) * 24
                 output, output_surface = ort_session_24.run(
@@ -118,11 +121,10 @@ class PanguWeather(Model):
 
                 stepper(i, step)
 
-        Step = step
-        with self.stepper(6) as stepper:
+            Step = step
+            j = max(max_24h_steps, i)
             for i in range(max_6h_steps):
                 step = (i + 1) * 6 + Step
-
                 output, output_surface = ort_session_6.run(
                     None,
                     {
@@ -131,3 +133,16 @@ class PanguWeather(Model):
                     },
                 )
                 input, input_surface = output, output_surface
+                
+                # Save the results
+
+                pl_data = output.reshape((-1, 721, 1440))
+
+                for data, f in zip(pl_data, fields_pl):
+                    self.write(data, template=f, step=step)
+
+                sfc_data = output_surface.reshape((-1, 721, 1440))
+                for data, f in zip(sfc_data, fields_sfc):
+                    self.write(data, template=f, step=step)
+                
+                stepper(i+j, step)
