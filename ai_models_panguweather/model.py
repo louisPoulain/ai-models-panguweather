@@ -11,8 +11,8 @@ import os
 
 import numpy as np
 import onnxruntime as ort
-
 from ai_models.model import Model
+import xarray as xr
 
 LOG = logging.getLogger(__name__)
 
@@ -44,17 +44,27 @@ class PanguWeather(Model):
         fields_pl = self.fields_pl
 
         param, level = self.param_level_pl
-        fields_pl = fields_pl.sel(param=param, level=level)
-        fields_pl = fields_pl.order_by(param=param, level=level)
+        
+        if isinstance(self.all_fields, list):
+            self.param_sfc = ["msl", "u10", "v10", "t2m"]
+            fields_pl = fields_pl.sel(isobaricInhPa=level)[param]
+            fields_sfc = self.fields_sfc[self.param_sfc]
+            
+            fields_pl_numpy = np.concatenate([fields_pl[f].values for f in param])
+            fields_sfc_numpy = np.concatenate([fields_sfc[f].values for f in self.param_sfc])
+            
+        else:
+            fields_pl = fields_pl.sel(param=param, level=level)
+            fields_pl = fields_pl.order_by(param=param, level=level)
 
-        fields_pl_numpy = fields_pl.to_numpy(dtype=np.float32)
-        fields_pl_numpy = fields_pl_numpy.reshape((5, 13, 721, 1440))
+            fields_pl_numpy = fields_pl.to_numpy(dtype=np.float32)
+            fields_pl_numpy = fields_pl_numpy.reshape((5, 13, 721, 1440))
 
-        fields_sfc = self.fields_sfc
-        fields_sfc = fields_sfc.sel(param=self.param_sfc)
-        fields_sfc = fields_sfc.order_by(param=self.param_sfc)
+            fields_sfc = self.fields_sfc
+            fields_sfc = fields_sfc.sel(param=self.param_sfc)
+            fields_sfc = fields_sfc.order_by(param=self.param_sfc)
 
-        fields_sfc_numpy = fields_sfc.to_numpy(dtype=np.float32)
+            fields_sfc_numpy = fields_sfc.to_numpy(dtype=np.float32)
 
         input = fields_pl_numpy
         input_surface = fields_sfc_numpy
@@ -88,61 +98,84 @@ class PanguWeather(Model):
             )
 
         input_24, input_surface_24 = input, input_surface
+        
+        if isinstance(self.all_fields, list):
+            data_vars = {}
+            surface_outputs = []
+            pl_outputs = []
 
-        max_24h_steps = self.lead_time // 24
-        lead_time_6h = self.lead_time - 24 * max_24h_steps
-        max_6h_steps = lead_time_6h // 6
-        step = 0
-        i = 0
-        with self.stepper(0) as stepper:
-            for i in range(max_24h_steps):
-                step = (i + 1) * 24
-                output, output_surface = ort_session_24.run(
+        with self.stepper(6) as stepper:
+            for i in range(self.lead_time // 6):
+                step = (i + 1) * 6
+
+                if (i + 1) % 4 == 0:
+                    output, output_surface = ort_session_24.run(
                         None,
                         {
                             "input": input_24,
                             "input_surface": input_surface_24,
                         },
                     )
-                input_24, input_surface_24 = output, output_surface
-
+                    input_24, input_surface_24 = output, output_surface
+                else:
+                    output, output_surface = ort_session_6.run(
+                        None,
+                        {
+                            "input": input,
+                            "input_surface": input_surface,
+                        },
+                    )
                 input, input_surface = output, output_surface
 
                 # Save the results
 
-                pl_data = output.reshape((-1, 721, 1440))
+                if not isinstance(self.all_fields, list):
+                    pl_data = output.reshape((-1, 721, 1440))
+                    for data, f in zip(pl_data, fields_pl):
+                        self.write(data, template=f, step=step)
 
-                for data, f in zip(pl_data, fields_pl):
-                    self.write(data, template=f, step=step)
-
-                sfc_data = output_surface.reshape((-1, 721, 1440))
-                for data, f in zip(sfc_data, fields_sfc):
-                    self.write(data, template=f, step=step)
-
+                    sfc_data = output_surface.reshape((-1, 721, 1440))
+                    for data, f in zip(sfc_data, fields_sfc):
+                        self.write(data, template=f, step=step)
+                else:
+                    surface_outputs.append(output_surface)
+                    pl_outputs.append(output)
+                
                 stepper(i, step)
-
-            Step = step
-            j = max(max_24h_steps, i)
-            for i in range(max_6h_steps):
-                step = (i + 1) * 6 + Step
-                output, output_surface = ort_session_6.run(
-                    None,
-                    {
-                        "input": input,
-                        "input_surface": input_surface,
-                    },
+            
+            if isinstance(self.all_fields, list):
+                surface_output = np.stack(surface_outputs).transpose((1, 0, 2, 3))
+                pl_output = np.stack(pl_outputs).transpose((1, 0, 2, 3, 4))
+                for i in range(len(self.param_sfc)):
+                    data_vars[self.param_sfc[i]] = (
+                        ("time", "lat", "lon"),
+                        surface_output[i],
+                    )
+                for i in range(len(self.param_level_pl[0])):
+                    data_vars[self.param_level_pl[0][i]] = (
+                        ("time", "level", "lat", "lon"),
+                        pl_output[i],
+                    )
+                
+                steps = np.arange(6, self.lead_time + 6, 6)    
+                times = [self.all_fields[1].time.values[0] + np.timedelta64(steps[i], 'h') for i in range(len(steps))]
+                lat, lon = self.all_fields[0].latitude.values, self.all_fields[0].longitude.values
+                saved_xarray = xr.Dataset(
+                    data_vars=data_vars,
+                    coords=dict(
+                        lon=lon,
+                        lat=lat,
+                        time=times,
+                        level=self.param_level_pl[1],
+                    ),
                 )
-                input, input_surface = output, output_surface
+                saved_xarray = saved_xarray.reindex(level=saved_xarray.level[::-1])
+                saved_xarray = saved_xarray.rename({"level": "isobaricInhPa"})
+                start_date = self.all_fields[0].valid_time.values[0]
                 
-                # Save the results
-
-                pl_data = output.reshape((-1, 721, 1440))
-
-                for data, f in zip(pl_data, fields_pl):
-                    self.write(data, template=f, step=step)
-
-                sfc_data = output_surface.reshape((-1, 721, 1440))
-                for data, f in zip(sfc_data, fields_sfc):
-                    self.write(data, template=f, step=step)
-                
-                stepper(i+j, step)
+                name = "/work/FAC/FGSE/IDYST/tbeucler/default/raw_data/ML_PREDICT/panguweather/" +\
+                    f"pangu_{np.datetime64(start_date, 'h')}_to_{np.datetime64(start_date + np.timedelta64(self.lead_time, 'h'), 'h')}"+\
+                    f"_ldt_{self.lead_time}.nc"
+                    
+                LOG.info(f"Saving to {name}")
+                saved_xarray.to_netcdf(name)
