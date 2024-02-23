@@ -159,7 +159,7 @@ class PanguWeather(Model):
                 
                 steps = np.arange(6, self.lead_time + 6, 6)    
                 times = [self.all_fields[1].time.values[0] + np.timedelta64(steps[i], 'h') for i in range(len(steps))]
-                lat, lon = self.all_fields[0].latitude.values, self.all_fields[0].longitude.values
+                lat, lon = self.all_fields[0].latitude.values[::-1], self.all_fields[0].longitude.values
                 saved_xarray = xr.Dataset(
                     data_vars=data_vars,
                     coords=dict(
@@ -178,4 +178,23 @@ class PanguWeather(Model):
                     f"_ldt_{self.lead_time}.nc"
                     
                 LOG.info(f"Saving to {name}")
-                saved_xarray.to_netcdf(name)
+                encoding = {}
+                for data_var in output.data_vars:
+                    encoding[data_var] = {
+                    "original_shape": output[data_var].shape,
+                    "_FillValue": output[data_var].encoding.get(
+                        "_FillValue", -32767
+                    ),
+                    "dtype": np.int16,
+                    "add_offset": output[data_var].encoding.get(
+                        "add_offset", output[data_var].mean().compute().values
+                    ),
+                    "scale_factor": output[data_var].encoding.get(
+                        "scale_factor",
+                        output[data_var].std().compute().values
+                        / 1000, # save up to 32 std
+                    ),
+                    # "zlib": True,
+                    # "complevel": 5,
+                    }
+                saved_xarray.to_netcdf(name, engine="netcdf4", mode="w", encoding=encoding, compute=True)
