@@ -179,22 +179,15 @@ class PanguWeather(Model):
                     
                 LOG.info(f"Saving to {name}")
                 encoding = {}
+                encoding = {}
                 for data_var in output.data_vars:
                     encoding[data_var] = {
                     "original_shape": output[data_var].shape,
-                    "_FillValue": output[data_var].encoding.get(
-                        "_FillValue", -32767
-                    ),
-                    "dtype": np.int16,
-                    "add_offset": output[data_var].encoding.get(
-                        "add_offset", output[data_var].mean().compute().values
-                    ),
-                    "scale_factor": output[data_var].encoding.get(
-                        "scale_factor",
-                        output[data_var].std().compute().values
-                        / 1000, # save up to 32 std
-                    ),
+                    "_FillValue": -32767,
+                    "dtype": np.float16,
+                    "add_offset": output[data_var].mean().compute().values,
+                    "scale_factor": output[data_var].std().compute().values / 1000, # save up to 32 std
                     # "zlib": True,
                     # "complevel": 5,
                     }
-                saved_xarray.to_netcdf(name, engine="netcdf4", mode="w", encoding=encoding, compute=True)
+                output.to_netcdf(name, engine="netcdf4", mode="w", encoding=encoding, compute=True)
