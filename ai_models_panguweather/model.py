@@ -172,8 +172,8 @@ class PanguWeather(Model):
                 saved_xarray = saved_xarray.reindex(level=saved_xarray.level[::-1])
                 saved_xarray = saved_xarray.rename({"level": "isobaricInhPa"})
                 start_date = self.all_fields[0].valid_time.values[0]
-                
-                name = "/work/FAC/FGSE/IDYST/tbeucler/default/raw_data/ML_PREDICT/panguweather/" +\
+                #/work/FAC/FGSE/IDYST/tbeucler/default/raw_data/ML_PREDICT/
+                name = "/work/FAC/FGSE/IDYST/tbeucler/default/raw_data/AI-milton/panguweather/" +\
                     f"pangu_{np.datetime64(start_date, 'h')}_to_{np.datetime64(start_date + np.timedelta64(self.lead_time, 'h'), 'h')}"+\
                     f"_ldt_{self.lead_time}.nc"
                     
