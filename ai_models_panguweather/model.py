@@ -8,6 +8,7 @@
 
 import logging
 import os
+import yaml
 
 import numpy as np
 import onnxruntime as ort
@@ -172,22 +173,24 @@ class PanguWeather(Model):
                 saved_xarray = saved_xarray.reindex(level=saved_xarray.level[::-1])
                 saved_xarray = saved_xarray.rename({"level": "isobaricInhPa"})
                 start_date = self.all_fields[0].valid_time.values[0]
-                #/work/FAC/FGSE/IDYST/tbeucler/default/raw_data/ML_PREDICT/
-                name = "/work/FAC/FGSE/IDYST/tbeucler/default/raw_data/AI-milton/panguweather/" +\
-                    f"pangu_{np.datetime64(start_date, 'h')}_to_{np.datetime64(start_date + np.timedelta64(self.lead_time, 'h'), 'h')}"+\
+                
+                with open("/users/lpoulain/louis/TCBench_0.1/slurms/models_config.yml", 'r') as f:
+                    folder = yaml.full_load(f).get("pangu_folder")
+                name = f"pangu_{np.datetime64(start_date, 'h')}_to_{np.datetime64(start_date + np.timedelta64(self.lead_time, 'h'), 'h')}"+\
                     f"_ldt_{self.lead_time}.nc"
+                name = os.path.join(folder, name)
                     
                 LOG.info(f"Saving to {name}")
-                encoding = {}
-                encoding = {}
-                for data_var in output.data_vars:
-                    encoding[data_var] = {
-                    "original_shape": output[data_var].shape,
-                    "_FillValue": -32767,
-                    "dtype": np.float16,
-                    "add_offset": output[data_var].mean().compute().values,
-                    "scale_factor": output[data_var].std().compute().values / 1000, # save up to 32 std
-                    # "zlib": True,
-                    # "complevel": 5,
-                    }
-                output.to_netcdf(name, engine="netcdf4", mode="w", encoding=encoding, compute=True)
+                #encoding = {}
+                #for data_var in output.data_vars:
+                #    encoding[data_var] = {
+                #    "original_shape": output[data_var].shape,
+                #    "_FillValue": -32767,
+                #    "dtype": np.int16,
+                #    "add_offset": output[data_var].mean().compute().values,
+                #    "scale_factor": output[data_var].std().compute().values / 1000, # save up to 32 std
+                #    # "zlib": True,
+                #    # "complevel": 5,
+                #    }
+                #output.to_netcdf(name, engine="netcdf4", mode="w", encoding=encoding, compute=True)
+                saved_xarray.to_netcdf(name, engine="netcdf4", mode="w", compute=True)
