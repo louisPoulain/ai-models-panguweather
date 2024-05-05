@@ -174,7 +174,7 @@ class PanguWeather(Model):
                 saved_xarray = saved_xarray.rename({"level": "isobaricInhPa"})
                 start_date = self.all_fields[0].valid_time.values[0]
                 
-                with open("/users/lpoulain/louis/TCBench_0.1/slurms/models_config.yml", 'r') as f:
+                with open("/work/FAC/FGSE/IDYST/tbeucler/default/raw_data/ML_PREDICT/models_config.yml", 'r') as f:
                     folder = yaml.full_load(f).get("pangu_folder")
                 name = f"pangu_{np.datetime64(start_date, 'h')}_to_{np.datetime64(start_date + np.timedelta64(self.lead_time, 'h'), 'h')}"+\
                     f"_ldt_{self.lead_time}.nc"
