@@ -48,8 +48,8 @@ class PanguWeather(Model):
         
         if isinstance(self.all_fields, list):
             self.param_sfc = ["msl", "u10", "v10", "t2m"]
-            fields_pl = fields_pl.sel(isobaricInhPa=level)[param]
-            fields_sfc = self.fields_sfc[self.param_sfc]
+            fields_pl = fields_pl.sel(isobaricInhPa=level)[param].sortby('latitude')
+            fields_sfc = self.fields_sfc[self.param_sfc].sortby('latitude')
             
             fields_pl_numpy = np.concatenate([fields_pl[f].values for f in param])
             fields_sfc_numpy = np.concatenate([fields_sfc[f].values for f in self.param_sfc])
@@ -160,7 +160,8 @@ class PanguWeather(Model):
                 
                 steps = np.arange(6, self.lead_time + 6, 6)    
                 times = [self.all_fields[1].time.values[0] + np.timedelta64(steps[i], 'h') for i in range(len(steps))]
-                lat, lon = self.all_fields[0].latitude.values[::-1], self.all_fields[0].longitude.values
+                # removed the [::-1] for lat as it should not be needed
+                lat, lon = self.all_fields[0].latitude.values, self.all_fields[0].longitude.values
                 saved_xarray = xr.Dataset(
                     data_vars=data_vars,
                     coords=dict(
