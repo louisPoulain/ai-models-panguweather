@@ -48,8 +48,8 @@ class PanguWeather(Model):
         
         if isinstance(self.all_fields, list):
             self.param_sfc = ["msl", "u10", "v10", "t2m"]
-            fields_pl = fields_pl.sel(isobaricInhPa=level)[param].sortby('latitude')
-            fields_sfc = self.fields_sfc[self.param_sfc].sortby('latitude')
+            fields_pl = fields_pl.sel(isobaricInhPa=level)[param].sortby('latitude', ascending=False)
+            fields_sfc = self.fields_sfc[self.param_sfc].sortby('latitude', ascending=False)
             
             fields_pl_numpy = np.concatenate([fields_pl[f].values for f in param])
             fields_sfc_numpy = np.concatenate([fields_sfc[f].values for f in self.param_sfc])
